@@ -1,11 +1,11 @@
 # ============================================
-# Spark Structured Streaming – Order Pipeline
-# (Spark 4.1.1 Compatible – No Delta)
+# streaming_pipeline.py
 # ============================================
 
 from pyspark.sql import SparkSession
 from pyspark.sql.types import *
 from pyspark.sql.functions import *
+import time
 
 # --------------------------------------------
 # 1. Spark Session
@@ -13,7 +13,8 @@ from pyspark.sql.functions import *
 
 spark = SparkSession.builder \
     .appName("OrderStreamingPipeline") \
-    .config("spark.sql.shuffle.partitions", "2) \
+    .config("spark.sql.shuffle.partitions", "2") \
+    .config("spark.sql.streaming.metricsEnabled", "false") \
     .config("spark.jars.packages",
             "org.apache.spark:spark-sql-kafka-0-10_2.13:4.1.1") \
     .getOrCreate()
@@ -35,7 +36,7 @@ raw_df = spark.readStream \
     .load()
 
 # --------------------------------------------
-# 3. JSON Parsing + Event Time
+# 3. JSON Parsing
 # --------------------------------------------
 
 order_schema = StructType([
@@ -53,19 +54,13 @@ parsed_df = raw_df.selectExpr("CAST(value AS STRING)") \
     .select("data.*") \
     .withColumn("event_time", to_timestamp("event_time"))
 
-# --------------------------------------------
-# 4. Watermark + Deduplication
-# --------------------------------------------
-
 clean_df = parsed_df \
     .withWatermark("event_time", "10 minutes") \
     .dropDuplicates(["order_id", "event_time"])
 
 # --------------------------------------------
-# 5. Latest State Per Order (foreachBatch)
+# 4. Latest State
 # --------------------------------------------
-
-LATEST_PATH = "./data/latest_orders"
 
 def overwrite_latest(batch_df, batch_id):
     latest = batch_df.groupBy("order_id") \
@@ -79,31 +74,26 @@ def overwrite_latest(batch_df, batch_id):
         )).alias("latest")) \
         .select("order_id", "latest.*")
 
-    latest.write \
-        .mode("overwrite") \
-        .parquet(LATEST_PATH)
+    latest.write.mode("overwrite").parquet("./data/latest_orders")
 
-latest_query = clean_df.writeStream \
+clean_df.writeStream \
     .foreachBatch(overwrite_latest) \
     .option("checkpointLocation", "./checkpoint/latest") \
     .trigger(processingTime="1 minute") \
     .start()
 
 # --------------------------------------------
-# 6. 5-Minute Window – Total Order Value
+# 5. Revenue Window
 # --------------------------------------------
 
 order_value_df = clean_df \
     .filter(col("event_type") != "CANCELLED") \
     .withColumn("order_value", col("quantity") * col("price")) \
-    .groupBy(
-        window("event_time", "5 minutes"),
-        "customer_id"
-    ) \
+    .groupBy(window("event_time", "5 minutes"), "customer_id") \
     .sum("order_value") \
     .withColumnRenamed("sum(order_value)", "total_order_value")
 
-order_value_query = order_value_df.writeStream \
+order_value_df.writeStream \
     .format("parquet") \
     .outputMode("append") \
     .partitionBy("customer_id") \
@@ -112,18 +102,16 @@ order_value_query = order_value_df.writeStream \
     .start("./data/order_value")
 
 # --------------------------------------------
-# 7. 5-Minute Window – Cancel Count
+# 6. Cancel Window
 # --------------------------------------------
 
 cancel_df = clean_df \
     .filter(col("event_type") == "CANCELLED") \
-    .groupBy(
-        window("event_time", "5 minutes")
-    ) \
+    .groupBy(window("event_time", "5 minutes")) \
     .count() \
     .withColumnRenamed("count", "cancel_count")
 
-cancel_query = cancel_df.writeStream \
+cancel_df.writeStream \
     .format("parquet") \
     .outputMode("append") \
     .option("checkpointLocation", "./checkpoint/cancel") \
@@ -131,7 +119,16 @@ cancel_query = cancel_df.writeStream \
     .start("./data/cancel_count")
 
 # --------------------------------------------
-# 8. Keep Application Running
+# 7. Run for fixed duration
 # --------------------------------------------
 
-spark.streams.awaitAnyTermination()
+print("Streaming running for 60 seconds...\n")
+time.sleep(60)
+
+print("Stopping streams...\n")
+for q in spark.streams.active:
+    q.stop()
+
+spark.stop()
+
+print("Streaming completed successfully.")
