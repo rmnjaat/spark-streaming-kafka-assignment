@@ -23,7 +23,38 @@ spark-submit spark/summary.py               # View summary report
 docker compose down -v                      # Clean up
 ```
 
-**Prerequisites:** Docker, Python 3.7+, Spark 4.1.1, Java 8/11
+---
+
+## Environment & Prerequisites
+
+This project was developed and tested with the following versions. **Install these before running the pipeline:**
+
+| Tool | Version | Notes |
+|------|---------|-------|
+| **Python** | `3.12.0` | Used to run `main.py` and `summary.py` |
+| **PySpark** | `4.1.1` | Install via `pip install pyspark==4.1.1` |
+| **Java (OpenJDK)** | `17+` | PySpark 4.x requires Java 17 or above (class file version 61.0) |
+| **Apache Spark** | `4.1.1` | Bundled with PySpark; `spark-submit` should be on your PATH |
+| **Docker** | `28.0.4` | Needed to run Kafka via Docker Compose |
+| **Docker Compose** | `v2.34.0` | Used for `docker compose up` |
+
+### Setup Steps
+
+```bash
+# 1. Ensure Java 17+ is installed and set as default
+java -version   # should show 17 or higher
+
+# 2. Install Python dependencies
+pip install pyspark==4.1.1
+
+# 3. Verify Spark is accessible
+spark-submit --version
+
+# 4. Ensure Docker is running
+docker --version && docker compose version
+```
+
+> **Note:** If you see a `UnsupportedClassVersionError` when running `spark-submit`, your `JAVA_HOME` is pointing to a Java version older than 17. PySpark 4.x targets class file version 61.0 (Java 17).
 
 ---
 
