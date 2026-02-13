@@ -54,6 +54,9 @@ spark-submit --version
 docker --version && docker compose version
 ```
 
+<img width="995" height="482" alt="image" src="https://github.com/user-attachments/assets/9c97da9c-36bf-4996-9d50-b5998b61e699" />
+
+
 > **Note:** If you see a `UnsupportedClassVersionError` when running `spark-submit`, your `JAVA_HOME` is pointing to a Java version older than 17. PySpark 4.x targets class file version 61.0 (Java 17).
 
 ---
